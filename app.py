@@ -8,6 +8,7 @@ import re
 import glob
 import base64
 import subprocess
+import traceback
 
 from google import genai
 from google.genai import types
@@ -25,7 +26,7 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 CRM_FILE = "my_job_crm.csv"
 MASTER_CV_FILE = "master-cv.yaml"
 
-LOCAL_SCORE_THRESHOLD = 4     # Minimum TF-IDF similarity (%) to pass pre-filter
+LOCAL_SCORE_THRESHOLD = 20     # Minimum TF-IDF similarity (%) to pass pre-filter
 AI_SCORE_THRESHOLD = 70        # Minimum AI fit score (%) to generate the CV
 
 client = genai.Client(api_key=API_KEY)
@@ -50,22 +51,59 @@ def generate_cv_corpus_via_ai(master_cv_text: str) -> str:
     {master_cv_text}
     """
     
+    print("\n" + "="*50)
+    print("[DEBUG - AI CORPUS] Starting API call to generate corpus...")
+    print(f"[DEBUG - AI CORPUS] Model selected: 'gemini-flash-latest'")
+    
     try:
+        # Trigger the AI model
         response = client.models.generate_content(
             model="gemini-flash-latest",
             contents=prompt,
         )
-        # Cleans the generated text
+        print("[DEBUG - AI CORPUS] API call completed successfully.")
+        
+        # Safely get a preview of the response text (first 100 characters)
+        raw_response_preview = repr(response.text[:100]) if response.text else "EMPTY_RESPONSE"
+        print(f"[DEBUG - AI CORPUS] Raw response text preview: {raw_response_preview}...")
+        
+        # Cleans the generated text (removing ``` delimiters)
+        print("[DEBUG - AI CORPUS] Cleaning markdown fences from response...")
         corpus_text = strip_markdown_fences(response.text)
+        
+        # Check current working directory to avoid saving it in a weird temp folder
+        cwd = os.getcwd()
+        file_path = os.path.join(cwd, "cv_corpus.txt")
+        print(f"[DEBUG - AI CORPUS] Current Working Directory is: {cwd}")
+        print(f"[DEBUG - AI CORPUS] Attempting to create/overwrite file at: {file_path}")
         
         # Saves to file for future use
         with open("cv_corpus.txt", "w", encoding="utf-8") as f:
             f.write(corpus_text)
             
+        print(f"[DEBUG - AI CORPUS] Successfully wrote {len(corpus_text)} characters to the file.")
+        
+        # Immediate verification: Does the OS recognize the file?
+        if os.path.exists(file_path):
+            print("[DEBUG - AI CORPUS] OS Verification: TRUE (File exists on disk!).")
+        else:
+            print("[DEBUG - AI CORPUS] OS Verification: FALSE (File not found on disk after writing!).")
+        
+        print("="*50 + "\n")
         return corpus_text
+        
     except Exception as e:
-        print(f"[ERROR] Failed to generate corpus: {e}")
-        # In case of network failure, return the original master CV as a fallback
+        # Detailed error catching to find exactly what went wrong
+        print("\n[ERROR - AI CORPUS] An exception occurred during corpus generation!")
+        print(f"[ERROR - AI CORPUS] Exception Type: {type(e).__name__}")
+        print(f"[ERROR - AI CORPUS] Exception Details: {str(e)}")
+        
+        print("[ERROR - AI CORPUS] Full Stack Trace:")
+        traceback.print_exc()  # This will print the exact file line that crashed
+        
+        # In case of failure, return the original master CV as a fallback
+        print("[DEBUG - AI CORPUS] Returning the original master_cv_text as a fallback.")
+        print("="*50 + "\n")
         return master_cv_text
 
 def get_or_create_cv_corpus(master_cv_text: str) -> str:
@@ -481,7 +519,7 @@ with tab_analyze:
 with tab_crm:
     df_crm = load_crm()
     if not df_crm.empty:
-        edited_df = st.data_editor(df_crm, use_container_width=True)
+        edited_df = st.data_editor(df_crm, width="stretch")
         if st.button("Save CRM"):
             edited_df.to_csv(CRM_FILE, index=False)
             st.success("CRM updated successfully!")
