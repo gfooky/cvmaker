@@ -320,28 +320,64 @@ with tab_analyze:
             company_name = st.text_input("Company Name")
         with col2:
             job_link = st.text_input("Job Link (optional)")
+        
+        # 1. Language Selector
+        target_language = st.selectbox("Generate CV in which language?", ["Português", "English", "Español"])
+        
         job_description = st.text_area("Paste the job description here:", height=150)
         submit_btn = st.form_submit_button("Analyze Fit & Generate CV")
 
+    # When the form is submitted, we save the data in Streamlit's memory
     if submit_btn and job_description and company_name:
-        # Loads the enriched corpus (PT + EN) instead of the master in YAML
-        cv_corpus_text = read_cv_corpus()
+        st.session_state["job_data"] = {
+            "company": company_name,
+            "link": job_link,
+            "desc": job_description,
+            "lang": target_language
+        }
+        st.session_state["force_ai"] = False  # Force analysis reset
+
+    # If there are job data in the memory, process them
+    if "job_data" in st.session_state:
+        job_data = st.session_state["job_data"]
         
-        # TF-IDF now compares the job with words in both languages
-        local_fit = local_pre_filter(cv_corpus_text, job_description)
-
-        if local_fit < LOCAL_SCORE_THRESHOLD:
-            st.error(
-                f"❌ Job rejected at pre-filter stage. "
-                f"Fit: {local_fit}% (Minimum: {LOCAL_SCORE_THRESHOLD}%)"
-            )
+        # 2. Check/Verify/Generate the Corpus
+        corpus_file = "cv_corpus.txt"
+        if not os.path.exists(corpus_file):
+            with st.spinner("🧠 Initializing... AI is generating your bilingual synonym dictionary. This only happens once!"):
+                cv_corpus_text = get_or_create_cv_corpus(master_cv_text)
+            st.toast("✅ Dictionary created and saved as 'cv_corpus.txt'!")
         else:
-            st.success(f"✅ Passed local pre-filter ({local_fit}%)! Waking up the AI...")
+            cv_corpus_text = get_or_create_cv_corpus(master_cv_text)
+        
+        # 3. Local Filter
+        local_fit = local_pre_filter(cv_corpus_text, job_data["desc"])
 
-            with st.spinner("AI is analyzing the job description word by word..."):
+        # Decision Logic for Running the AI
+        run_ai = False
+
+        if local_fit >= LOCAL_SCORE_THRESHOLD:
+            st.success(f"✅ Passed the local pre-filter ({local_fit}%)! Waking up the AI...")
+            run_ai = True
+        elif st.session_state.get("force_ai", False):
+            st.info(f"⚡ Forced analysis manually by the user. (Original local fit: {local_fit}%)")
+            run_ai = True
+        else:
+            st.warning(
+                f"⚠️ The job did not meet the minimum score in the pre-filter.\n\n"
+                f"**Local Fit:** {local_fit}% (Minimum required: {LOCAL_SCORE_THRESHOLD}%)"
+            )
+            # Button to ignore the block
+            if st.button("🚀 Force Submission to the AI (Spend Tokens)"):
+                st.session_state["force_ai"] = True
+                st.rerun()  # Rerun the app to trigger the run_ai = True flow
+
+        # 4. AI execution (if approved or forced)
+        if run_ai:
+            with st.spinner(f"The AI is translating your CV to {job_data['lang']} and optimizing it..."):
                 try:
                     ai_result = evaluate_and_generate_ai(
-                        job_description, master_cv_text, AI_SCORE_THRESHOLD
+                        job_data["desc"], master_cv_text, AI_SCORE_THRESHOLD, job_data["lang"]
                     )
                     ai_fit = ai_result.get("percentual_fit", 0)
                     reason = ai_result.get("reason", "No reason provided.")
@@ -350,13 +386,16 @@ with tab_analyze:
                     if ai_fit >= AI_SCORE_THRESHOLD:
                         st.success(f"**AI Fit Score: {ai_fit}%** — {reason}")
                         render_cv_and_save(
-                            adapted_yaml, company_name, job_link, local_fit, ai_fit
+                            adapted_yaml, job_data["company"], job_data["link"], local_fit, ai_fit
                         )
+                        # Optional: Clear the memory after success to start a new job cleanly
+                        del st.session_state["job_data"]
                     else:
                         st.warning(
-                            f"⚠️ Job rejected by AI. Fit: {ai_fit}% "
+                            f"⚠️ Job rejected definitively by the AI. Fit: {ai_fit}% "
                             f"(Minimum: {AI_SCORE_THRESHOLD}%) — {reason}"
                         )
+                        del st.session_state["job_data"]
 
                 except Exception as e:
                     st.error(f"🚨 API call failed: {e}")
@@ -366,14 +405,17 @@ with tab_analyze:
                         "the manual form at the bottom of this page."
                     )
 
-                    st.session_state["failed_company"] = company_name
-                    st.session_state["failed_link"] = job_link
+                    st.session_state["failed_company"] = job_data["company"]
+                    st.session_state["failed_link"] = job_data["link"]
                     st.session_state["failed_fit"] = local_fit
 
                     emergency_prompt = build_prompt(
-                        job_description, master_cv_text, AI_SCORE_THRESHOLD
+                        job_data["desc"], master_cv_text, AI_SCORE_THRESHOLD, job_data["lang"]
                     )
                     st.code(emergency_prompt, language="markdown")
+                    
+                    # Clear the main data to allow using the Plan B form
+                    del st.session_state["job_data"]
 
     # ------------------------------------------
     # FALLBACK: Manual Plan B Form
