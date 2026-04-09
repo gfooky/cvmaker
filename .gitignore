@@ -1,0 +1,4 @@
+.env
+rendercv_output/*
+*.csv
+*.yaml
