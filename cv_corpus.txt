@@ -1,7 +1,0 @@
-Engenheiro de Dados, Data Engineer, Software Engineer, Engenheiro de Software, Backend Developer.
-Python, Asyncio, FastAPI, RabbitMQ, Docker Compose, C, C++, APIs REST, GraphQL.
-Web Scraping, Extração de Dados, Selenium, Playwright, Network Interception, BeautifulSoup.
-Pandas, SQL, PostgreSQL, Data Analysis, Análise de Dados, Limpeza de Dados, Data Cleansing, ETL, Pipelines.
-Machine Learning, MLOps, Scikit-learn, IA Generativa, Generative AI, Deep Learning.
-English, Fluent, Inglês, Fluente, Portuguese, Português.
-IoT, Telemetria, Telemetry, CAN bus, Sistemas Embarcados, Embedded Systems.

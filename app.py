@@ -25,7 +25,7 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 CRM_FILE = "my_job_crm.csv"
 MASTER_CV_FILE = "master-cv.yaml"
 
-LOCAL_SCORE_THRESHOLD = 20     # Minimum TF-IDF similarity (%) to pass pre-filter
+LOCAL_SCORE_THRESHOLD = 4     # Minimum TF-IDF similarity (%) to pass pre-filter
 AI_SCORE_THRESHOLD = 70        # Minimum AI fit score (%) to generate the CV
 
 client = genai.Client(api_key=API_KEY)
@@ -34,6 +34,51 @@ client = genai.Client(api_key=API_KEY)
 # 2. UTILITY FUNCTIONS
 # ==========================================
 
+def generate_cv_corpus_via_ai(master_cv_text: str) -> str:
+    """
+    Calls the Gemini API to read the master CV and generate a dense text
+    with the keywords, synonyms, and translations to English.
+    """
+    prompt = f"""
+    You are an expert technical recruiter and ATS system developer.
+    Analyze the following CV and extract all key terms, hard skills, job titles, and technologies.
+    Generate a dense text block containing these keywords, including their common synonyms and exact English translations.
+    
+    CRITICAL RULE: Return ONLY the raw text with the keywords. Do not use markdown, do not write code fences (```), do not include greetings or explanations. Just the words separated by commas or newlines.
+
+    MY CV:
+    {master_cv_text}
+    """
+    
+    try:
+        response = client.models.generate_content(
+            model="gemini-flash-latest",
+            contents=prompt,
+        )
+        # Cleans the generated text
+        corpus_text = strip_markdown_fences(response.text)
+        
+        # Saves to file for future use
+        with open("cv_corpus.txt", "w", encoding="utf-8") as f:
+            f.write(corpus_text)
+            
+        return corpus_text
+    except Exception as e:
+        print(f"[ERROR] Failed to generate corpus: {e}")
+        # In case of network failure, return the original master CV as a fallback
+        return master_cv_text
+
+def get_or_create_cv_corpus(master_cv_text: str) -> str:
+    """
+    Checks if the corpus file exists. If not, generates it with AI.
+    """
+    corpus_file = "cv_corpus.txt"
+    if os.path.exists(corpus_file):
+        with open(corpus_file, "r", encoding="utf-8") as f:
+            return f.read()
+    else:
+        return generate_cv_corpus_via_ai(master_cv_text)
+    
 def read_cv_corpus() -> str:
     """Reads the synonym file for the TF-IDF filter."""
     try:
@@ -105,7 +150,7 @@ def local_pre_filter(cv_text: str, job_text: str) -> float:
         return 0.0
 
 
-def build_prompt(job_description: str, master_cv_text: str, score_threshold: int) -> str:
+def build_prompt(job_description: str, master_cv_text: str, score_threshold: int, target_language: str) -> str:
     return f"""
 You are a technical recruiter and ATS specialist.
 Analyze the fit (0–100) between the job description and my CV.
@@ -113,10 +158,9 @@ If the fit >= {score_threshold}, return an adapted CV (highly ATS-optimized, mir
 If not, return null. NEVER invent or fabricate data.
 
 CRITICAL REQUIREMENTS:
-1. Identify the language of the JOB DESCRIPTION.
-2. Translate and adapt all the generated CV content to match the JOB DESCRIPTION language exactly.
-3. Keep the original YAML structure intact.
-4. Always copy the "design:" block exactly as it appears at the end of MY CV. Do not omit it.
+1. Translate and adapt ALL the generated CV content to: {target_language}.
+2. Keep the original YAML structure intact.
+3. Always copy the "design:" block exactly as it appears at the end of MY CV. Do not omit it.
 
 Return a JSON object: {{"percentual_fit": int, "reason": str, "adapted_cv_yaml": str or null}}
 
@@ -145,13 +189,13 @@ def strip_markdown_fences(text: str) -> str:
 
 
 def evaluate_and_generate_ai(
-    job_text: str, master_cv_text: str, score_threshold: int
+    job_text: str, master_cv_text: str, score_threshold: int, target_language: str
 ) -> dict:
     """
     Calls the Gemini API to assess CV fit and generate an ATS-optimized CV.
     Returns a parsed JSON dict with keys: percentual_fit, reason, adapted_cv_yaml.
     """
-    prompt = build_prompt(job_text, master_cv_text, score_threshold)
+    prompt = build_prompt(job_text, master_cv_text, score_threshold, target_language)
 
     response = client.models.generate_content(
         model="gemini-flash-latest",
