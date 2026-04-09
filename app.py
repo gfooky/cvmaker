@@ -335,8 +335,7 @@ def render_cv_and_save(
 # ==========================================
 # 4. USER INTERFACE
 # ==========================================
-st.set_page_config(page_title="CV_maker", layout="wide")
-st.title("🚀 CV-Maker — Auto-Apply & CV Optimizer")
+st.set_page_config(page_title="CV-Maker Pipeline", layout="wide")
 
 master_cv_text = read_master_cv()
 if not master_cv_text:
@@ -346,12 +345,47 @@ if not master_cv_text:
     )
     st.stop()
 
-tab_analyze, tab_crm = st.tabs(["🔍 Analyze New Job", "📊 My Pipeline"])
+# Load CRM Data
+df_crm = load_crm()
 
 # ------------------------------------------
-# TAB 1: Job Analysis & CV Generation
+# SIDEBAR NAVIGATION
 # ------------------------------------------
-with tab_analyze:
+with st.sidebar:
+    st.title("📂 Job Pipeline")
+    st.write("Manage your applications here.")
+    
+    # Build options list dynamically
+    options = ["➕ New Application"]
+    option_mapping = {} # To easily find the DataFrame index later
+    
+    if not df_crm.empty:
+        # Iterate backwards to show the newest entries first
+        for idx, row in df_crm.iloc[::-1].iterrows():
+            opt_str = f"📄 {row['Company']} ({row['Date']}) [ID:{idx}]"
+            options.append(opt_str)
+            option_mapping[opt_str] = idx
+            
+    selected_option = st.radio("Navigation", options)
+    
+    # Keep the raw data editor available inside an expander
+    st.divider()
+    with st.expander("⚙️ Edit CRM Database"):
+        if not df_crm.empty:
+            edited_df = st.data_editor(df_crm, width="stretch")
+            if st.button("Save CRM Changes"):
+                edited_df.to_csv(CRM_FILE, index=False)
+                st.success("CRM updated successfully!")
+                st.rerun() # Refresh app to update sidebar list
+        else:
+            st.info("Pipeline is empty.")
+
+# ------------------------------------------
+# MAIN AREA
+# ------------------------------------------
+if selected_option == "➕ New Application":
+    st.title("🚀 CV-Maker — Auto-Apply & CV Optimizer")
+    
     with st.form("job_form"):
         col1, col2 = st.columns(2)
         with col1:
@@ -359,7 +393,6 @@ with tab_analyze:
         with col2:
             job_link = st.text_input("Job Link (optional)")
         
-        # 1. Language Selector
         target_language = st.selectbox("Generate CV in which language?", ["Português", "English", "Español"])
         
         job_description = st.text_area("Paste the job description here:", height=150)
@@ -384,7 +417,12 @@ with tab_analyze:
         if not os.path.exists(corpus_file):
             with st.spinner("🧠 Initializing... AI is generating your bilingual synonym dictionary. This only happens once!"):
                 cv_corpus_text = get_or_create_cv_corpus(master_cv_text)
-            st.toast("✅ Dictionary created and saved as 'cv_corpus.txt'!")
+            
+            if cv_corpus_text and os.path.exists(corpus_file):
+                st.toast("✅ Dictionary created and saved as 'cv_corpus.txt'!")
+            else:
+                st.warning("⚠️ Could not generate dictionary. Falling back to original Master CV.")
+                cv_corpus_text = master_cv_text
         else:
             cv_corpus_text = get_or_create_cv_corpus(master_cv_text)
         
@@ -408,7 +446,7 @@ with tab_analyze:
             # Button to ignore the block
             if st.button("🚀 Force Submission to the AI (Spend Tokens)"):
                 st.session_state["force_ai"] = True
-                st.rerun()  # Rerun the app to trigger the run_ai = True flow
+                st.rerun()
 
         # 4. AI execution (if approved or forced)
         if run_ai:
@@ -426,7 +464,6 @@ with tab_analyze:
                         render_cv_and_save(
                             adapted_yaml, job_data["company"], job_data["link"], local_fit, ai_fit
                         )
-                        # Optional: Clear the memory after success to start a new job cleanly
                         del st.session_state["job_data"]
                     else:
                         st.warning(
@@ -452,33 +489,24 @@ with tab_analyze:
                     )
                     st.code(emergency_prompt, language="markdown")
                     
-                    # Clear the main data to allow using the Plan B form
-                    del st.session_state["job_data"]
+                    if "job_data" in st.session_state:
+                        del st.session_state["job_data"]
 
     # ------------------------------------------
     # FALLBACK: Manual Plan B Form
     # ------------------------------------------
     st.divider()
     st.subheader("🛠️ Plan B: Manual Generator")
-    st.write(
-        "Use this form if the API above failed. "
-        "Paste the full JSON response you got from an external AI here."
-    )
+    st.write("Use this form if the API above failed. Paste the full JSON response you got from an external AI here.")
 
     with st.form("manual_form"):
         col1_m, col2_m = st.columns(2)
         with col1_m:
-            manual_company = st.text_input(
-                "Company", value=st.session_state.get("failed_company", "")
-            )
+            manual_company = st.text_input("Company", value=st.session_state.get("failed_company", ""))
         with col2_m:
-            manual_link = st.text_input(
-                "Link", value=st.session_state.get("failed_link", "")
-            )
+            manual_link = st.text_input("Link", value=st.session_state.get("failed_link", ""))
 
-        pasted_text = st.text_area(
-            "Paste the AI-generated JSON response here:", height=250
-        )
+        pasted_text = st.text_area("Paste the AI-generated JSON response here:", height=250)
         manual_btn = st.form_submit_button("Parse JSON & Generate PDF")
 
     if manual_btn and pasted_text and manual_company:
@@ -492,36 +520,41 @@ with tab_analyze:
             reason = parsed_data.get("reason", "")
 
             if not adapted_yaml:
-                st.error(
-                    "❌ The JSON is valid but does not contain the 'adapted_cv_yaml' key."
-                )
+                st.error("❌ The JSON is valid but does not contain the 'adapted_cv_yaml' key.")
             else:
                 st.success(f"✅ JSON parsed successfully! AI Fit: {ai_fit}%")
                 if reason:
                     st.info(f"**Reason:** {reason}")
-                render_cv_and_save(
-                    adapted_yaml, manual_company, manual_link, saved_local_fit, ai_fit
-                )
+                render_cv_and_save(adapted_yaml, manual_company, manual_link, saved_local_fit, ai_fit)
 
         except json.JSONDecodeError:
-            # Last resort: treat the pasted content as raw YAML
-            st.warning(
-                "⚠️ Input does not appear to be valid JSON. "
-                "Attempting to use it directly as YAML..."
-            )
-            render_cv_and_save(
-                pasted_text, manual_company, manual_link, saved_local_fit, "Manual (Raw YAML)"
-            )
+            st.warning("⚠️ Input does not appear to be valid JSON. Attempting to use it directly as YAML...")
+            render_cv_and_save(pasted_text, manual_company, manual_link, saved_local_fit, "Manual (Raw YAML)")
 
-# ------------------------------------------
-# TAB 2: CRM / Job Pipeline
-# ------------------------------------------
-with tab_crm:
-    df_crm = load_crm()
-    if not df_crm.empty:
-        edited_df = st.data_editor(df_crm, width="stretch")
-        if st.button("Save CRM"):
-            edited_df.to_csv(CRM_FILE, index=False)
-            st.success("CRM updated successfully!")
+else:
+    # ------------------------------------------
+    # VIEW SAVED JOB DETAILS
+    # ------------------------------------------
+    # Extract the correct index from the dictionary mapping
+    job_idx = option_mapping[selected_option]
+    job_data = df_crm.loc[job_idx]
+    
+    st.title("🏢 Application Details")
+    st.header(job_data['Company'])
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Local Fit (%)", job_data.get('Local Fit (%)', 'N/A'))
+    col2.metric("AI Fit (%)", job_data.get('AI Fit (%)', 'N/A'))
+    col3.metric("Status", job_data.get('Status', 'N/A'))
+    
+    st.divider()
+    st.write(f"**📅 Date Applied:** {job_data.get('Date', 'N/A')}")
+    
+    link = job_data.get('Link/Note', '')
+    if pd.notna(link) and str(link).strip():
+        st.write(f"**🔗 Link/Note:** {link}")
     else:
-        st.info("Your pipeline is empty. Analyze a job to get started!")
+        st.write("**🔗 Link/Note:** Not provided")
+        
+    st.divider()
+    st.info("💡 You can find the generated PDF for this application inside the `rendercv_output` folder in your project directory.")

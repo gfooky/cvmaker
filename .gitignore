@@ -2,3 +2,4 @@
 rendercv_output/*
 *.csv
 *.yaml
+*.txt
