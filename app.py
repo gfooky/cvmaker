@@ -322,6 +322,8 @@ def render_cv_and_save(
                     
                     os.rename(latest_pdf, new_pdf_path)
                     
+                    pdf_path_to_save = new_pdf_path  
+                    
                     st.subheader(f"CV ready for {company_name}:")
                     display_pdf(new_pdf_path)
 
