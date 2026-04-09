@@ -34,6 +34,15 @@ client = genai.Client(api_key=API_KEY)
 # 2. UTILITY FUNCTIONS
 # ==========================================
 
+def read_cv_corpus() -> str:
+    """Reads the synonym file for the TF-IDF filter."""
+    try:
+        with open("cv_corpus.txt", "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        # If it does not find the file, fallback to the original Master CV
+        return read_master_cv()
+    
 def display_pdf(file_path: str) -> None:
     """Renders a PDF file inline in the Streamlit app using an iframe."""
     with open(file_path, "rb") as f:
@@ -97,18 +106,17 @@ def local_pre_filter(cv_text: str, job_text: str) -> float:
 
 
 def build_prompt(job_description: str, master_cv_text: str, score_threshold: int) -> str:
-    """
-    Constructs the prompt sent to the Gemini AI model for CV fit analysis
-    and ATS-optimized CV generation.
-    """
     return f"""
 You are a technical recruiter and ATS specialist.
 Analyze the fit (0–100) between the job description and my CV.
 If the fit >= {score_threshold}, return an adapted CV (highly ATS-optimized, mirroring the job's terminology).
 If not, return null. NEVER invent or fabricate data.
 
-CRITICAL REQUIREMENT: Keep the original YAML structure intact, and always copy the "design:" block
-exactly as it appears at the end of MY CV. Do not omit it.
+CRITICAL REQUIREMENTS:
+1. Identify the language of the JOB DESCRIPTION.
+2. Translate and adapt all the generated CV content to match the JOB DESCRIPTION language exactly.
+3. Keep the original YAML structure intact.
+4. Always copy the "design:" block exactly as it appears at the end of MY CV. Do not omit it.
 
 Return a JSON object: {{"percentual_fit": int, "reason": str, "adapted_cv_yaml": str or null}}
 
@@ -272,7 +280,11 @@ with tab_analyze:
         submit_btn = st.form_submit_button("Analyze Fit & Generate CV")
 
     if submit_btn and job_description and company_name:
-        local_fit = local_pre_filter(master_cv_text, job_description)
+        # Loads the enriched corpus (PT + EN) instead of the master in YAML
+        cv_corpus_text = read_cv_corpus()
+        
+        # TF-IDF now compares the job with words in both languages
+        local_fit = local_pre_filter(cv_corpus_text, job_description)
 
         if local_fit < LOCAL_SCORE_THRESHOLD:
             st.error(
