@@ -31,6 +31,137 @@ AI_SCORE_THRESHOLD = 70        # Minimum AI fit score (%) to generate the CV
 
 client = genai.Client(api_key=API_KEY)
 
+def apply_notion_theme(is_dark=False):
+    """Injects custom CSS"""
+    
+    if is_dark:
+        css_vars = """
+            --bg-main: #191919;
+            --bg-sidebar: #1e1e1e;
+            --text-main: rgba(255, 255, 255, 0.92);
+            --border-whisper: 1px solid rgba(255, 255, 255, 0.1);
+            --btn-primary-bg: #4da3f0;
+            --btn-primary-text: #191919;
+            --btn-ghost-bg: rgba(255, 255, 255, 0.08);
+            --btn-ghost-hover: rgba(255, 255, 255, 0.14);
+            --input-bg: #1e1e1e;
+            --shadow-card: rgba(0, 0, 0, 0.2) 0px 4px 18px 0px, rgba(0, 0, 0, 0.15) 0px 2.025px 7.85px 0px, rgba(0, 0, 0, 0.1) 0px 0.8px 2.93px 0px, rgba(0, 0, 0, 0.08) 0px 0.175px 1.04px 0px;
+        """
+    else:
+        css_vars = """
+            --bg-main: #ffffff;
+            --bg-sidebar: #f6f5f4;
+            --text-main: rgba(0, 0, 0, 0.95);
+            --border-whisper: 1px solid rgba(0, 0, 0, 0.1);
+            --btn-primary-bg: #0075de;
+            --btn-primary-text: #ffffff;
+            --btn-ghost-bg: rgba(0, 0, 0, 0.05);
+            --btn-ghost-hover: rgba(0, 0, 0, 0.1);
+            --input-bg: #ffffff;
+            --shadow-card: rgba(0, 0, 0, 0.04) 0px 4px 18px 0px, rgba(0, 0, 0, 0.027) 0px 2.025px 7.85px 0px, rgba(0, 0, 0, 0.02) 0px 0.8px 2.93px 0px, rgba(0, 0, 0, 0.01) 0px 0.175px 1.04px 0px;
+        """
+
+    notion_css = f"""
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+        :root {{
+            {css_vars}
+            /* 1. NATIVE STREAMLIT VARIABLES */
+            --text-color: var(--text-main) !important;
+            --background-color: var(--bg-main) !important;
+            --secondary-background-color: var(--bg-sidebar) !important;
+            --primary-color: var(--btn-primary-bg) !important;
+        }}
+
+        /* 2. HIDE STREAMLIT'S TOP BAR */
+        [data-testid="stHeader"] {{
+            display: none !important;
+        }}
+
+        /* Application Background and sidebar */
+        .stApp {{
+            background-color: var(--bg-main) !important;
+        }}
+        [data-testid="stSidebar"] {{
+            background-color: var(--bg-sidebar) !important;
+            border-right: var(--border-whisper) !important;
+        }}
+
+        /* Text typography */
+        p, label, h1, h2, h3, li, a, .stMarkdown, div[data-testid="stMetricValue"] {{
+            font-family: 'Inter', -apple-system, sans-serif !important;
+            color: var(--text-main) !important;
+        }}
+        
+        /* Protecting the icons */
+        .material-icons, .material-symbols-rounded {{
+            font-family: "Material Symbols Rounded" !important;
+            color: inherit !important;
+        }}
+        
+        h1 {{
+            font-weight: 700 !important;
+            letter-spacing: -2.125px !important;
+            line-height: 1.0 !important;
+        }}
+        h2, h3 {{
+            font-weight: 700 !important;
+            letter-spacing: -1.0px !important;
+        }}
+
+        /* Secondary Buttons */
+        [data-testid="stButton"] button {{
+            border-radius: 4px !important;
+            border: var(--border-whisper) !important;
+            background-color: var(--btn-ghost-bg) !important;
+            color: var(--text-main) !important;
+            font-weight: 600 !important;
+            padding: 8px 16px !important;
+            transition: all 0.2s ease !important;
+            box-shadow: none !important;
+        }}
+        [data-testid="stButton"] button:hover {{
+            background-color: var(--btn-ghost-hover) !important;
+        }}
+
+        /* Primary Button and Form Submit Button */
+        [data-testid="stButton"] button[kind="primary"], .stFormSubmitButton button {{
+            background-color: var(--btn-primary-bg) !important;
+            color: var(--btn-primary-text) !important;
+            border: 1px solid transparent !important;
+        }}
+        
+        /* Force text color specifically within buttons to avoid inheriting the wrong base color in Dark Mode */
+        [data-testid="stButton"] button[kind="primary"] p, .stFormSubmitButton button p {{
+            color: var(--btn-primary-text) !important;
+        }}
+
+        /* Text Inputs and Selectors */
+        .stTextInput input, .stTextArea textarea, div[data-baseweb="select"] > div {{
+            border-radius: 4px !important;
+            border: var(--border-whisper) !important;
+            background-color: var(--input-bg) !important;
+            color: var(--text-main) !important;
+            box-shadow: none !important;
+        }}
+
+        /* Expanders */
+        [data-testid="stExpander"] {{
+            border-radius: 12px !important;
+            border: var(--border-whisper) !important;
+            background-color: var(--bg-main) !important;
+            box-shadow: var(--shadow-card) !important;
+            overflow: hidden;
+            margin-bottom: 16px;
+        }}
+        [data-testid="stExpander"] summary {{
+            color: var(--text-main) !important;
+        }}
+    </style>
+    """
+    st.markdown(notion_css, unsafe_allow_html=True)
+    
 # ==========================================
 # 2. UTILITY FUNCTIONS
 # ==========================================
@@ -351,9 +482,9 @@ def render_cv_and_save(
             "Company": company_name,
             "Local Fit (%)": local_fit,
             "AI Fit (%)": ai_fit,
-            "Job Status": "Not Sent",  # Default value in English
+            "Job Status": "Not Sent", 
             "Link/Note": job_link,
-            "PDF Path": pdf_path_to_save  # New field added!
+            "PDF Path": pdf_path_to_save
         }
     )
 
@@ -362,6 +493,11 @@ def render_cv_and_save(
 # 4. USER INTERFACE
 # ==========================================
 st.set_page_config(page_title="CV-Maker Pipeline", layout="wide")
+
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = False
+
+apply_notion_theme(is_dark=st.session_state.dark_mode)
 
 master_cv_text = read_master_cv()
 if not master_cv_text:
@@ -380,6 +516,9 @@ df_crm = load_crm()
 with st.sidebar:
     st.title("📂 Job Pipeline")
     st.write("Manage your applications here.")
+    
+    st.toggle("🌙 Dark Mode", key="dark_mode")
+    st.divider()
     
     # Build options list dynamically
     options = ["➕ New Application"]
